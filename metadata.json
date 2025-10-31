@@ -1,0 +1,7 @@
+{
+  "name": "Assistant de Transport de Colis Industriel",
+  "description": "Un assistant intelligent pour aider les clients à passer des commandes de ramassage et de livraison de colis industriels, avec calcul d'itinéraire automatique, estimation des coûts et confirmation de commande alimentée par l'IA.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
