@@ -3,12 +3,14 @@ import type { Address } from '../types';
 import { LocationMarkerIcon } from './Icons';
 
 interface AddressInputProps {
-  id: keyof { pickupAddress: any; deliveryAddress: any };
+  id: 'pickupAddress' | 'deliveryAddress';
   title: string;
   address: Address;
   onAddressChange: (id: string, field: keyof Address, value: string) => void;
   onUseGeolocation?: () => void;
   isGeolocationLoading?: boolean;
+  errors: Record<string, string>;
+  onBlur: (e: React.FocusEvent<HTMLInputElement>) => void;
 }
 
 const AddressInput: React.FC<AddressInputProps> = ({
@@ -18,10 +20,14 @@ const AddressInput: React.FC<AddressInputProps> = ({
   onAddressChange,
   onUseGeolocation,
   isGeolocationLoading = false,
+  errors,
+  onBlur,
 }) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onAddressChange(id, e.target.name as keyof Address, e.target.value);
   };
+  
+  const hasError = (field: keyof Address) => !!errors[`${id}.${field}`];
 
   return (
     <fieldset className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -33,11 +39,14 @@ const AddressInput: React.FC<AddressInputProps> = ({
           type="text"
           name="street"
           id={`${id}-street`}
+          data-path={`${id}.street`}
           value={address.street}
           onChange={handleChange}
-          className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+          onBlur={onBlur}
+          className={`mt-1 block w-full bg-gray-50 dark:bg-gray-700 border rounded-md shadow-sm py-2 px-3 sm:text-sm ${hasError('street') ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500'}`}
           placeholder="123 Rue de l'Industrie"
         />
+        {hasError('street') && <p className="mt-1 text-sm text-red-600">{errors[`${id}.street`]}</p>}
       </div>
 
       <div>
@@ -46,11 +55,14 @@ const AddressInput: React.FC<AddressInputProps> = ({
           type="text"
           name="city"
           id={`${id}-city`}
+          data-path={`${id}.city`}
           value={address.city}
           onChange={handleChange}
-          className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+          onBlur={onBlur}
+          className={`mt-1 block w-full bg-gray-50 dark:bg-gray-700 border rounded-md shadow-sm py-2 px-3 sm:text-sm ${hasError('city') ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500'}`}
           placeholder="Métropole"
         />
+        {hasError('city') && <p className="mt-1 text-sm text-red-600">{errors[`${id}.city`]}</p>}
       </div>
 
       <div>
@@ -59,11 +71,14 @@ const AddressInput: React.FC<AddressInputProps> = ({
           type="text"
           name="postalCode"
           id={`${id}-postalCode`}
+          data-path={`${id}.postalCode`}
           value={address.postalCode}
           onChange={handleChange}
-          className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+          onBlur={onBlur}
+          className={`mt-1 block w-full bg-gray-50 dark:bg-gray-700 border rounded-md shadow-sm py-2 px-3 sm:text-sm ${hasError('postalCode') ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500'}`}
           placeholder="75001"
         />
+        {hasError('postalCode') && <p className="mt-1 text-sm text-red-600">{errors[`${id}.postalCode`]}</p>}
       </div>
 
       {onUseGeolocation && (

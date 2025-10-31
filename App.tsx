@@ -30,10 +30,49 @@ const App: React.FC = () => {
   const [pickupTime, setPickupTime] = useState('');
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const calendarRef = useRef<HTMLDivElement>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const validateField = (name: string, value: any): string => {
+    const postalCodeRegex = /^\d{5}$/;
+    const phoneRegex = /^0[1-9](?:[ _.-]?\d{2}){4}$/;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    switch (name) {
+      case 'pickupAddress.street':
+      case 'deliveryAddress.street':
+      case 'pickupAddress.city':
+      case 'deliveryAddress.city':
+        return value.trim() ? '' : 'Ce champ est requis.';
+      case 'pickupAddress.postalCode':
+      case 'deliveryAddress.postalCode':
+        if (!value.trim()) return 'Ce champ est requis.';
+        return postalCodeRegex.test(value) ? '' : 'Code postal invalide (5 chiffres).';
+      case 'pickupDateTime':
+        return value ? '' : 'Veuillez sélectionner une date et une heure.';
+      case 'parcel.weight':
+      case 'parcel.contents':
+        return value.toString().trim() ? '' : 'Ce champ est requis.';
+      case 'customer.name':
+        return value.trim() ? '' : 'Le nom complet est requis.';
+      case 'customer.phone':
+        if (!value.trim()) return 'Le numéro de téléphone est requis.';
+        return phoneRegex.test(value) ? '' : 'Format invalide (ex: 0612345678).';
+      case 'customer.email':
+        if (!value.trim()) return "L'adresse e-mail est requise.";
+        return emailRegex.test(value) ? '' : "Format d'e-mail invalide.";
+      default:
+        return '';
+    }
+  };
 
   useEffect(() => {
     if (pickupDate && pickupTime) {
-      setOrderDetails(prev => ({ ...prev, pickupDateTime: `${pickupDate}T${pickupTime}`}));
+      const newDateTime = `${pickupDate}T${pickupTime}`;
+      setOrderDetails(prev => ({ ...prev, pickupDateTime: newDateTime}));
+      const error = validateField('pickupDateTime', newDateTime);
+      setErrors(prev => ({...prev, pickupDateTime: error }));
+    } else {
+       setOrderDetails(prev => ({ ...prev, pickupDateTime: ''}));
     }
   }, [pickupDate, pickupTime]);
   
@@ -51,22 +90,14 @@ const App: React.FC = () => {
 
   const timeSlots = useMemo(() => {
     const slots = [];
-    // Boucle de 8h00 (480 minutes) à 17h30 (1050 minutes) par incréments de 30 minutes.
     for (let totalMinutes = 480; totalMinutes <= 1050; totalMinutes += 30) {
         const hour = Math.floor(totalMinutes / 60);
         const minute = totalMinutes % 60;
-        
-        // La valeur interne reste au format 24h pour la cohérence des données.
         const value = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-        
         let displayHour = hour % 12;
-        if (displayHour === 0) displayHour = 12; // 12h est 12 PM, 0h est 12 AM
-        
+        if (displayHour === 0) displayHour = 12;
         const period = hour >= 12 ? 'PM' : 'AM';
-        
-        // L'étiquette est au format 12h convivial.
         const label = `${displayHour}:${String(minute).padStart(2, '0')} ${period}`;
-        
         slots.push({ value, label });
     }
     return slots;
@@ -95,6 +126,15 @@ const App: React.FC = () => {
     }
   }, [handleInputChange]);
   
+  const handleBlur = useCallback((e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value, dataset } = e.target as HTMLInputElement;
+    const path = dataset.path || (dataset.section ? `${dataset.section}.${name}` : name);
+    if (!path) return;
+
+    const error = validateField(path, value);
+    setErrors(prev => ({ ...prev, [path]: error }));
+  }, []);
+  
   const handleUseGeolocation = useCallback(() => {
     if (!navigator.geolocation) {
       setFormError("La géolocalisation n'est pas prise en charge par votre navigateur ou la connexion n'est pas sécurisée (HTTPS requis).");
@@ -106,17 +146,22 @@ const App: React.FC = () => {
     setFormInfo(null);
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        // SIMULATION : Dans une application réelle, ces coordonnées seraient envoyées à une API
-        // de géocodage inversé pour obtenir une adresse postale précise.
-        // Pour cette démo, nous utilisons une adresse simulée.
         console.log(`Géolocalisation réussie :`, position.coords);
-        setOrderDetails(prev => ({
-          ...prev,
-          pickupAddress: {
+        const newAddress: Address = {
             street: '123 Rue de la Géolocalisation',
             city: 'Votre Ville (Simulée)',
             postalCode: `${Math.floor(Math.random() * 89999) + 10000}`,
-          },
+        };
+        setOrderDetails(prev => ({
+          ...prev,
+          pickupAddress: newAddress,
+        }));
+        // Validate geolocated fields
+        setErrors(prev => ({
+            ...prev,
+            'pickupAddress.street': validateField('pickupAddress.street', newAddress.street),
+            'pickupAddress.city': validateField('pickupAddress.city', newAddress.city),
+            'pickupAddress.postalCode': validateField('pickupAddress.postalCode', newAddress.postalCode),
         }));
         setFormInfo("Adresse simulée avec succès. Une application réelle utiliserait votre adresse exacte via un service de géocodage inversé.");
         setIsGeolocationLoading(false);
@@ -158,65 +203,41 @@ const App: React.FC = () => {
   }, [orderDetails.pickupAddress, orderDetails.deliveryAddress, orderDetails.parcel.weight]);
 
   const validateForm = (): boolean => {
-    const postalCodeRegex = /^\d{5}$/;
+    const fieldsToValidate = {
+        'pickupAddress.street': orderDetails.pickupAddress.street,
+        'pickupAddress.city': orderDetails.pickupAddress.city,
+        'pickupAddress.postalCode': orderDetails.pickupAddress.postalCode,
+        'deliveryAddress.street': orderDetails.deliveryAddress.street,
+        'deliveryAddress.city': orderDetails.deliveryAddress.city,
+        'deliveryAddress.postalCode': orderDetails.deliveryAddress.postalCode,
+        'pickupDateTime': orderDetails.pickupDateTime,
+        'parcel.weight': orderDetails.parcel.weight,
+        'parcel.contents': orderDetails.parcel.contents,
+        'customer.name': orderDetails.customer.name,
+        'customer.phone': orderDetails.customer.phone,
+        'customer.email': orderDetails.customer.email,
+    };
 
-    if (!isAddressComplete(orderDetails.pickupAddress)) {
-      setFormError("L'adresse de ramassage est incomplète. Veuillez vérifier la rue, la ville et le code postal.");
-      return false;
-    }
-    if (!postalCodeRegex.test(orderDetails.pickupAddress.postalCode)) {
-      setFormError("Le code postal de ramassage est invalide. Il doit comporter 5 chiffres.");
-      return false;
-    }
-    if (!isAddressComplete(orderDetails.deliveryAddress)) {
-      setFormError("L'adresse de livraison est incomplète. Veuillez vérifier la rue, la ville et le code postal.");
-      return false;
-    }
-    if (!postalCodeRegex.test(orderDetails.deliveryAddress.postalCode)) {
-        setFormError("Le code postal de livraison est invalide. Il doit comporter 5 chiffres.");
-        return false;
-    }
-    if (!orderDetails.pickupDateTime) {
-      setFormError("Veuillez sélectionner une date et une heure pour le ramassage.");
-      return false;
-    }
-    if (!orderDetails.parcel.weight || !orderDetails.parcel.contents) {
-      setFormError("Les détails du colis sont incomplets. Le poids et la description du contenu sont obligatoires.");
-      return false;
-    }
-    if (!orderDetails.customer.name) {
-      setFormError("Veuillez saisir votre nom complet.");
-      return false;
-    }
-    if (!orderDetails.customer.phone) {
-      setFormError("Veuillez saisir votre numéro de téléphone.");
-      return false;
-    }
+    const newErrors: Record<string, string> = {};
+    let isValid = true;
 
-    const phoneRegex = /^0[1-9](?:[ _.-]?\d{2}){4}$/;
-    if (!phoneRegex.test(orderDetails.customer.phone)) {
-        setFormError("Le format du numéro de téléphone est invalide. Il doit comporter 10 chiffres et commencer par 0 (ex: 06 12 34 56 78).");
-        return false;
+    for (const [field, value] of Object.entries(fieldsToValidate)) {
+        const error = validateField(field, value);
+        if (error) {
+            newErrors[field] = error;
+            isValid = false;
+        }
     }
-    
-    if (!orderDetails.customer.email) {
-      setFormError("Une adresse e-mail est requise pour la confirmation.");
-      return false;
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(orderDetails.customer.email)) {
-      setFormError("Le format de l'adresse e-mail est invalide.");
-      return false;
-    }
-
-    setFormError(null);
-    return true;
+    setErrors(newErrors);
+    return isValid;
   }
 
   const handleProceedToSummary = () => {
     if (validateForm()) {
+      setFormError(null);
       setStage(Stage.SUMMARY);
+    } else {
+       setFormError("Veuillez corriger les erreurs indiquées avant de continuer.");
     }
   };
 
@@ -273,6 +294,7 @@ const App: React.FC = () => {
     setFormError(null);
     setNotificationError(null);
     setFormInfo(null);
+    setErrors({});
   };
 
   const getPlaceholderForCategory = (category: ParcelCategory) => {
@@ -291,9 +313,9 @@ const App: React.FC = () => {
   const renderForm = () => (
     <>
       <div className="space-y-8 divide-y divide-gray-200 dark:divide-gray-700">
-        <AddressInput id="pickupAddress" title="Point de ramassage" address={orderDetails.pickupAddress} onAddressChange={handleAddressChange} onUseGeolocation={handleUseGeolocation} isGeolocationLoading={isGeolocationLoading}/>
+        <AddressInput id="pickupAddress" title="Point de ramassage" address={orderDetails.pickupAddress} onAddressChange={handleAddressChange} onUseGeolocation={handleUseGeolocation} isGeolocationLoading={isGeolocationLoading} errors={errors} onBlur={handleBlur} />
         <div className="pt-8">
-            <AddressInput id="deliveryAddress" title="Détails de la Livraison" address={orderDetails.deliveryAddress} onAddressChange={handleAddressChange} />
+            <AddressInput id="deliveryAddress" title="Détails de la Livraison" address={orderDetails.deliveryAddress} onAddressChange={handleAddressChange} errors={errors} onBlur={handleBlur} />
         </div>
         <div className="pt-8">
           <fieldset>
@@ -304,7 +326,7 @@ const App: React.FC = () => {
                  <div
                   id="pickup-date-display"
                   onClick={() => setIsCalendarOpen(true)}
-                  className="mt-1 flex justify-between items-center w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 cursor-pointer"
+                  className={`mt-1 flex justify-between items-center w-full bg-gray-50 dark:bg-gray-700 border rounded-md shadow-sm py-2 px-3 cursor-pointer ${errors.pickupDateTime ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
                   role="button"
                   aria-haspopup="true"
                   aria-expanded={isCalendarOpen}
@@ -361,13 +383,14 @@ const App: React.FC = () => {
                   name="pickupTime"
                   value={pickupTime}
                   onChange={(e) => setPickupTime(e.target.value)}
-                  className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className={`mt-1 block w-full bg-gray-50 dark:bg-gray-700 border rounded-md shadow-sm py-2 px-3 sm:text-sm ${errors.pickupDateTime ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500'}`}
                 >
                   <option value="" disabled>Sélectionnez une heure</option>
                   {timeSlots.map(slot => (
                     <option key={slot.value} value={slot.value}>{slot.label}</option>
                   ))}
                 </select>
+                {errors.pickupDateTime && <p className="mt-1 text-sm text-red-600">{errors.pickupDateTime}</p>}
               </div>
             </div>
           </fieldset>
@@ -376,37 +399,28 @@ const App: React.FC = () => {
             <fieldset>
                 <legend className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2"><PackageIcon /> Détails du Colis</legend>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Poids (kg)</label><input type="number" name="weight" data-section="parcel" value={orderDetails.parcel.weight} onChange={handleSimpleInputChange} placeholder="50" className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" /></div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Poids (kg)</label>
+                        <input type="number" name="weight" data-section="parcel" value={orderDetails.parcel.weight} onChange={handleSimpleInputChange} onBlur={handleBlur} placeholder="50" className={`mt-1 block w-full bg-gray-50 dark:bg-gray-700 border rounded-md shadow-sm py-2 px-3 sm:text-sm ${errors['parcel.weight'] ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500'}`} />
+                        {errors['parcel.weight'] && <p className="mt-1 text-sm text-red-600">{errors['parcel.weight']}</p>}
+                    </div>
                     <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Longueur (cm)</label><input type="number" name="length" data-section="parcel" value={orderDetails.parcel.length} onChange={handleSimpleInputChange} placeholder="100" className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Largeur (cm)</label><input type="number" name="width" data-section="parcel" value={orderDetails.parcel.width} onChange={handleSimpleInputChange} placeholder="80" className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" /></div>
                     <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Hauteur (cm)</label><input type="number" name="height" data-section="parcel" value={orderDetails.parcel.height} onChange={handleSimpleInputChange} placeholder="60" className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" /></div>
                     <div className="md:col-span-2 lg:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Catégorie de Contenu</label>
-                        <select
-                            name="category"
-                            data-section="parcel"
-                            value={orderDetails.parcel.category}
-                            onChange={handleSimpleInputChange}
-                            className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                        >
-                            {Object.values(ParcelCategory).map(cat => (
-                                <option key={cat} value={cat}>{cat}</option>
-                            ))}
+                        <select name="category" data-section="parcel" value={orderDetails.parcel.category} onChange={handleSimpleInputChange} className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                            {Object.values(ParcelCategory).map(cat => (<option key={cat} value={cat}>{cat}</option>))}
                         </select>
                     </div>
-                    <div className="md:col-span-2 lg:col-span-4"><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description du Contenu</label><textarea name="contents" data-section="parcel" value={orderDetails.parcel.contents} onChange={handleSimpleInputChange} placeholder="ex: Pièces de machine, Palette de boîtes" rows={3} className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" /></div>
+                    <div className="md:col-span-2 lg:col-span-4">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description du Contenu</label>
+                        <textarea name="contents" data-section="parcel" value={orderDetails.parcel.contents} onChange={handleSimpleInputChange} onBlur={handleBlur} placeholder="ex: Pièces de machine, Palette de boîtes" rows={3} className={`mt-1 block w-full bg-gray-50 dark:bg-gray-700 border rounded-md shadow-sm py-2 px-3 sm:text-sm ${errors['parcel.contents'] ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500'}`} />
+                        {errors['parcel.contents'] && <p className="mt-1 text-sm text-red-600">{errors['parcel.contents']}</p>}
+                    </div>
                     <div className="md:col-span-2 lg:col-span-4">
                         <label htmlFor="special-instructions" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Instructions de Manutention Spéciales (Optionnel)</label>
-                        <textarea
-                            id="special-instructions"
-                            name="specialInstructions"
-                            data-section="parcel"
-                            value={orderDetails.parcel.specialInstructions}
-                            onChange={handleSimpleInputChange}
-                            placeholder={getPlaceholderForCategory(orderDetails.parcel.category)}
-                            rows={3}
-                            className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                        />
+                        <textarea id="special-instructions" name="specialInstructions" data-section="parcel" value={orderDetails.parcel.specialInstructions} onChange={handleSimpleInputChange} placeholder={getPlaceholderForCategory(orderDetails.parcel.category)} rows={3} className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
                     </div>
                     {routeInfo && (
                         <div className="md:col-span-2 lg:col-span-4">
@@ -426,15 +440,18 @@ const App: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Nom Complet</label>
-                        <input type="text" name="name" data-section="customer" value={orderDetails.customer.name} onChange={handleSimpleInputChange} placeholder="Jean Dupont" className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                        <input type="text" name="name" data-section="customer" value={orderDetails.customer.name} onChange={handleSimpleInputChange} onBlur={handleBlur} placeholder="Jean Dupont" className={`mt-1 block w-full bg-gray-50 dark:bg-gray-700 border rounded-md shadow-sm py-2 px-3 sm:text-sm ${errors['customer.name'] ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500'}`} />
+                        {errors['customer.name'] && <p className="mt-1 text-sm text-red-600">{errors['customer.name']}</p>}
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Numéro de Téléphone</label>
-                        <input type="tel" name="phone" data-section="customer" value={orderDetails.customer.phone} onChange={handleSimpleInputChange} placeholder="06-12-34-56-78" className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                        <input type="tel" name="phone" data-section="customer" value={orderDetails.customer.phone} onChange={handleSimpleInputChange} onBlur={handleBlur} placeholder="0612345678" className={`mt-1 block w-full bg-gray-50 dark:bg-gray-700 border rounded-md shadow-sm py-2 px-3 sm:text-sm ${errors['customer.phone'] ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500'}`} />
+                        {errors['customer.phone'] && <p className="mt-1 text-sm text-red-600">{errors['customer.phone']}</p>}
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Adresse E-mail</label>
-                        <input type="email" name="email" data-section="customer" value={orderDetails.customer.email} onChange={handleSimpleInputChange} placeholder="jean.dupont@example.com" className="mt-1 block w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                        <input type="email" name="email" data-section="customer" value={orderDetails.customer.email} onChange={handleSimpleInputChange} onBlur={handleBlur} placeholder="jean.dupont@example.com" className={`mt-1 block w-full bg-gray-50 dark:bg-gray-700 border rounded-md shadow-sm py-2 px-3 sm:text-sm ${errors['customer.email'] ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500'}`} />
+                        {errors['customer.email'] && <p className="mt-1 text-sm text-red-600">{errors['customer.email']}</p>}
                     </div>
                 </div>
             </fieldset>
@@ -452,7 +469,7 @@ const App: React.FC = () => {
       {formError && (
         <Alert
           type="error"
-          title="Erreur de Saisie"
+          title="Erreur de Formulaire"
           message={formError}
           onClose={() => setFormError(null)}
         />
